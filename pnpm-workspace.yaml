@@ -1,5 +1,8 @@
 allowBuilds:
+  agent-browser: true
+  edgedriver: true
   esbuild: true
+  geckodriver: true
 minimumReleaseAgeExclude:
   - '@mastra/core@1.70.0'
   - '@mastra/deployer@1.70.0'
