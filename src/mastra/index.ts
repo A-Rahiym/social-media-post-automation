@@ -4,23 +4,28 @@ import { DuckDBStore } from '@mastra/duckdb';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import {extractionWorkflow} from './workflow/extraction_workflow';
 import {webAgent} from './agents/webAgent';
+
 import {
   MastraStorageExporter,
   MastraPlatformExporter,
   Observability,
   SensitiveDataFilter,
 } from '@mastra/observability';
-import { testAgent } from './agents/agent';
+import { dataExtractionAgent } from './agents/extractionAgent';
 import { startScheduleTool, stopScheduleTool } from './tools/schedule-tools';
+import { structuredOutputAgent } from './agents/structuredOutputAgent';
 
 export const mastra = new Mastra({
   bundler: {
     externals: ['@duckdb/node-bindings'],
   },
-  agents: { agent: testAgent,
-    webAgent: webAgent
+  agents: { extractionAgent: dataExtractionAgent,
+    webAgent: webAgent,
+    structuredOutputAgent: structuredOutputAgent
    },
-  workflows: { extractionWorkflow},
+  workflows: { extractionWorkflow
+    
+  },
   tools: { startScheduleTool, stopScheduleTool },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
