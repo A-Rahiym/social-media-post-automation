@@ -14,6 +14,7 @@ import {
 import { dataExtractionAgent } from './agents/extractionAgent';
 import { startScheduleTool, stopScheduleTool } from './tools/schedule-tools';
 import { structuredOutputAgent } from './agents/structuredOutputAgent';
+import {postNewsWorkflow} from './workflow/postNews';
 
 export const mastra = new Mastra({
   bundler: {
@@ -23,9 +24,7 @@ export const mastra = new Mastra({
     webAgent: webAgent,
     structuredOutputAgent: structuredOutputAgent
    },
-  workflows: { extractionWorkflow
-    
-  },
+  workflows: { extractionWorkflow, postNewsWorkflow},
   tools: { startScheduleTool, stopScheduleTool },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
