@@ -12,7 +12,7 @@
 | Pipeline | File | Status |
 |---|---|---|
 | `extractNews` (Extraction-workflow) | `src/mastra/workflow/extractNews.ts` | Built, scheduled every 5 min |
-| `postNews` | `src/mastra/workflow/postNews.ts` | **Placeholder — 0 bytes, unregistered. This is the next build.** |
+| `postNews` | `src/mastra/workflow/postNews.ts` | Built — independent per-article review/post/record (see §6) |
 
 **High-level data flow (target end state):**
 
@@ -47,27 +47,43 @@ Nigerian news sites → webAgent → dataExtractionAgent → structuredOutputAge
 ├── docker-compose.yaml             # local Postgres (news_db, user/password, mydatabase, 5432)
 ├── package.json / pnpm-lock.yaml / pnpm-workspace.yaml
 ├── tsconfig.json
-├── .env / .env.example             # NOTE: .env.example only has GOOGLE_GENERATIVE_AI_API_KEY — incomplete (see §9)
+├── .env / .env.example             # all required keys documented (DB, Telegram, X, Turso)
+├── db/migrations/001_posting.sql  # articles DDL + posting columns + review_decisions
 ├── src/
 │   ├── browser/
 │   │   └── agentBrowser.ts         # shared AgentBrowser instance, headless:true
 │   ├── schema/
 │   │   └── articleSchema.ts        # shared zod schema (single source of truth)
 │   └── mastra/
-│       ├── index.ts                # Mastra root: agents, workflows, tools, storage, observability
+│       ├── index.ts                # Mastra root: agents, workflows, tools, storage, observability, server.apiRoutes
 │       ├── lib/
-│       │   └── newsLinks.ts        # default source list (punch, dailytrust, vanguard)
+│       │   ├── newsLinks.ts        # default source list (punch, dailytrust, vanguard)
+│       │   ├── POSTING_WORKFLOW_PLAN.md  # independent-posting design this section implements
+│       │   ├── env.ts              # requireEnv/optionalEnv helpers
+│       │   ├── db.ts               # shared lazy pg Pool (DATABASE_URL)
+│       │   ├── telegram.ts         # Telegraf singleton + sendPreviewCard + answerCallback (webhook mode, never launch())
+│       │   ├── reviewDecisions.ts  # review_decisions persistence: record/get/awaitDecision (first wins, DB-poll wait)
+│       │   └── posting.ts          # postToX + recordArticleOutcome — single implementation shared by tools AND workflow steps
+│       ├── server/
+│       │   └── telegramWebhook.ts  # POST /webhooks/telegram (secret + chat allow-list, idempotent)
 │       ├── agents/
-│       │   ├── webAgent.ts         # fetch-only news researcher (has browser)
-│       │   ├── extractionAgent.ts  # raw text → JSON text (no browsing)
-│       │   └── structuredOutputAgent.ts  # text → validated structured objects
+│       │   ├── web.ts              # fetch-only news researcher (has browser)
+│       │   ├── extraction.ts       # raw text → JSON text (no browsing)
+│       │   ├── structuredOutput.ts # text → validated structured objects
+│       │   └── postingAgent.ts     # single-X-draft writer (≤280 chars, URL, 1–3 hashtags, no invented facts)
 │       ├── tools/
 │       │   ├── saveArticle.ts      # pg upsert into articles (imports shared schema)
 │       │   ├── cleanJson.ts        # fence-strip + JSON.parse + schema validate (currently unwired)
+│       │   ├── getArticles.ts      # unposted + failed (retryable) articles
+│       │   ├── draftPosts.ts       # one draft per article via postingAgent
+│       │   ├── telegramPreview.ts  # wraps sendPreviewCard
+│       │   ├── telegramApproval.ts # wraps awaitDecision (DB wait — getUpdates polling removed)
+│       │   ├── postToX.ts          # wraps postToX
+│       │   ├── markPosted.ts       # wraps recordArticleOutcome (posted|rejected|skipped|failed)
 │       │   └── schedule-tools.ts   # start/stop schedule (NOTE: hardcodes agentId 'agent' — stale, see §9)
 │       └── workflow/
 │           ├── extractNews.ts      # 4-step scheduled extraction pipeline (built)
-│           └── postNews.ts         # EMPTY — posting pipeline goes here
+│           └── postNews.ts         # independent per-article posting pipeline (built, see §6)
 ```
 
 ### 3.1 File-by-file spec
@@ -116,13 +132,13 @@ RETURNING (xmax = 0) AS inserted;
 3. `structuredOutputStep` (`structuring`): `{ response }` → `structuredOutputAgent` with structured output → `{ articles: articleSchema[] }`.
 4. `saveStep`: `createStep(saveArticlesTool)` → `{ inserted, updated, total }` (workflow output schema declares `articles`-shaped objects; runtime returns tool counts — align on next pass).
 
-**`src/mastra/index.ts`**: registers `extractionAgent`, `webAgent`, `structuredOutputAgent`; workflows `{ extractionWorkflow }`; tools `{ startScheduleTool, stopScheduleTool }`; `MastraCompositeStore` (LibSQL default + DuckDB observability domain); `bundler.externals: ['@duckdb/node-bindings']`.
+**`src/mastra/index.ts`**: registers `extractionAgent`, `webAgent`, `structuredOutputAgent`, `postingAgent`; workflows `{ extractionWorkflow, postNewsWorkflow }`; tools `{ startScheduleTool, stopScheduleTool, getArticlesTool, draftPostsTool, sendTelegramPreviewTool, awaitTelegramApprovalTool, postToXTool, markPostedTool }`; `server.apiRoutes: [telegramWebhookRoute]`; `MastraCompositeStore` (LibSQL default + DuckDB observability domain); `bundler.externals: ['@duckdb/node-bindings']`.
 
 **`docker-compose.yaml`**: `postgres:16-alpine`, container `news_db`, `user/password/mydatabase`, host `5432`, volume `db_data`.
 
 ## 4. Storage
 
-- **Postgres `articles` table** (consumed by `saveArticle.ts`; **no migration file exists yet — create one first**):
+- **Postgres `articles` table** — DDL lives in `db/migrations/001_posting.sql` (apply: `psql "$DATABASE_URL" -f db/migrations/001_posting.sql`):
 ```sql
 CREATE TABLE IF NOT EXISTS articles (
   id SERIAL PRIMARY KEY,
@@ -131,49 +147,50 @@ CREATE TABLE IF NOT EXISTS articles (
   quote TEXT,
   url TEXT NOT NULL UNIQUE,
   published_at TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
-  -- posting extension (add in §6 migration):
-  -- status TEXT DEFAULT 'fetched',      -- fetched | previewed | approved | posted | rejected | skipped
-  -- post_draft TEXT,
-  -- preview_message_id TEXT,
-  -- post_ids JSONB,
-  -- posted_at TIMESTAMPTZ
+  created_at TIMESTAMPTZ DEFAULT now(),
+  status TEXT DEFAULT 'fetched',  -- fetched|previewed|posted|rejected|skipped|failed
+  post_draft TEXT,
+  preview_message_id TEXT,
+  post_id TEXT,
+  posted_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS review_decisions (
+  article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+  decision TEXT NOT NULL CHECK (decision IN ('approved','rejected')),
+  decided_at TIMESTAMPTZ DEFAULT now()
 );
 ```
+`posted` rows are never re-selected (`posted_at IS NOT NULL` filter); `failed` rows are re-selectable for retry.
 - **Mastra internal**: LibSQL (`file:./mastra.db` or `TURSO_DATABASE_URL/AUTH_TOKEN`), DuckDB observability domain.
 
 ## 5. Git history (context for the next agent)
 
 Feature-based commits on `main` (latest-first at time of writing): `51cf81e` 4-step pipeline, `c7df9bb` remove legacy `agent.ts`, `698e4c3` webAgent fetch-only rewrite, `f97f555`/`d8a4ef2` structuring agents, `ee5f303`/`8caa9df` tools, `036d21d` pg infra, `10d322b` newsLinks, `49d649d` schema. Known uncommitted drift at handoff time: `extraction_workflow.ts` → `extractNews.ts` rename plus `index.ts` import change and new empty `postNews.ts` — commit or reconcile before building.
 
-## 6. Posting workflow — build spec (the actual next task)
+## 6. Posting workflow — as built (implements `lib/POSTING_WORKFLOW_PLAN.md`)
 
-### 6.1 Requirements
-
-- [ ] SQL migration: `articles` table + posting columns above (status/draft/preview/post_ids/posted_at).
-- [ ] `getArticlesTool` (`id: get-unposted-articles`): input `{ limit?: number, status?: 'fetched' }` → `SELECT id,title,summary,quote,url,published_at FROM articles WHERE posted_at IS NULL AND (status IS NULL OR status='fetched') ORDER BY published_at DESC NULLS LAST, id DESC LIMIT n`.
-- [ ] `draftPostTool` or `postingAgent.generate`: article → per-platform drafts. X default ≤280 chars incl. link; Luganda/English as per article; 1–3 hashtags; never invent facts; always include source URL; produce `{ platform, text, thread?: string[] }`.
-- [ ] `sendTelegramPreviewTool`: grammY/telegraf `sendMessage(chatId, card, { reply_markup: inline_keyboard [Approve ✅, Edit ✏️, Reject ❌] })` → `{ preview_message_id }`. Card = title + summary + URL + draft post(s).
-- [ ] `awaitTelegramApprovalTool` (or workflow suspend/resume): wait for `callback_query`/reply from allow-listed chat; timeout (default 60 min) → `skipped`; parse `approve | reject | edit:<text>`.
-- [ ] `postToXTool` behind a `SocialAdapter` interface (`post(draft) → { postId }`) so LinkedIn/Facebook adapters plug in later.
-- [ ] `markPostedTool`: `UPDATE articles SET status, post_draft, preview_message_id, post_ids, posted_at=now() WHERE id=?`.
-- [ ] `postingAgent` (new, no browser): owns voice/hashtag/length rules, calls draft + preview tools, never posts without `approval.status === 'approved'`.
-- [ ] `postNews` workflow in `postNews.ts`, registered in `index.ts` workflows.
-- [ ] Env: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_REVIEW_CHAT_ID`, `X_*` (platform keys later).
-- [ ] `.env.example` updated with all of the above.
-
-### 6.2 Proposed flow (`postNews` workflow)
+`src/mastra/workflow/postNews.ts` (`id: post-news-workflow`, input `{ limit default 5 }` → `{ results: [{ articleId, status }] }`):
 
 ```
-1. loadStep            getArticlesTool(limit=5) → candidates[]
-2. draftStep            postingAgent per article → drafts[] (x + thread variant)
-3. previewStep          sendTelegramPreviewTool per draft → preview_message_id, status='previewed'
-4. approvalStep         awaitTelegramApprovalTool / suspend-resume → approved | edit | rejected | timed-out
-5. postStep (approved)  SocialAdapter.post (X first; LinkedIn/FB fan-out later, Promise.allSettled)
-6. recordStep           markPostedTool → status posted/rejected/skipped + post_ids + posted_at
+1. loadStep            getArticlesTool(limit) → { articles } (unposted + failed)
+2. draftStep            draftPostsTool → { drafts } (postingAgent, one X draft each)
+3. sendPreviewsStep     ALL Telegram previews first, bounded concurrency 3.
+                        Preview-send failure → record "skipped" immediately.
+4. processArticles      .foreach(processArticleStep, { concurrency: 3 }):
+                          previewError → "skipped" (already recorded)
+                          awaitDecision() → approved → postToX → "posted"
+                            X error → "failed" (re-selectable, never marked posted)
+                            rejected/timed_out → "rejected"/"skipped", X never called
+5. summarizeStep        foreach array → { results }
 ```
 
-Rules: idempotent (dedupe on `url`, safe re-run marks only unposted); rate-limit + exponential backoff on post calls; never post on timeout; edits from Telegram replace draft and re-preview once; all secrets server-side.
+### 6.1 Key design decisions (read before changing)
+
+- **Decisions live in Postgres** (`review_decisions`, first-wins upsert). The webhook writes, the workflow polls (`awaitDecision`, 5 s interval, `TELEGRAM_APPROVAL_TIMEOUT_MINUTES` default 60). No in-memory state, restart-safe, no per-article `getUpdates` pollers (polling + webhooks compete for one update stream).
+- **Steps call service functions, not `tool.execute()`** (`lib/posting.ts`, `lib/telegram.ts`, `lib/reviewDecisions.ts`). Tool `execute` takes `(inputData, context)` and may return `void|ValidationError` — wrong shape for step code. Tools in `tools/` wrap the same functions for Studio use.
+- **Single Telegram entry point**: `POST /webhooks/telegram` (custom Hono route, mounted at app root — public URL `{origin}/webhooks/telegram`). Validates `X-Telegram-Bot-Api-Secret-Token` when configured, allow-lists `TELEGRAM_REVIEW_CHAT_ID`, routes `approve:<id>`/`reject:<id>`, always `answerCbQuery`s accepted callbacks, ignores everything else with `200 {ok:true}`.
+- **Timeout = do not post.** `timed_out` maps to `skipped`, same as rejected.
+- **Remaining gaps**: no `SocialAdapter` abstraction yet (X direct via `twitter-api-v2`); no Telegram edit support (approve/reject only); no X retry/backoff or rate limiting; `cleanText` still unwired; `schedule-tools.ts` stale `agentId`.
 
 ### 6.3 Telegram review loop (decided)
 
@@ -196,30 +213,28 @@ Rules: idempotent (dedupe on `url`, safe re-run marks only unposted); rate-limit
 
 ## 8. Known gaps / tech debt (fix in this order)
 
-1. Filename drift: `extraction_workflow.ts` deleted, `extractNews.ts` untracked, `index.ts` modified — reconcile + commit.
-2. `postNews.ts` empty + unregistered — the build in §6.
-3. No SQL migration file for `articles` (table assumed by tool).
-4. `cleanText` unwired; workflow output schema vs `saveStep` return shape mismatch (`articles` vs counts).
-5. `schedule-tools.ts` stale `agentId: 'agent'`; extraction cron is workflow-level (`*/5 * * * *`).
-6. `.env.example` missing `DATABASE_URL`, OpenRouter, Telegram, X keys.
-7. `pnpm build` (Mastra bundler) OOMs in this container; `pnpm tsc --noEmit` passes — verify on a bigger box/CI.
+1. Commit the posting-pipeline change set (new: `lib/{env,db,telegram,reviewDecisions,posting}.ts`, `server/telegramWebhook.ts`, `db/migrations/001_posting.sql`; rewritten: `workflow/postNews.ts`, `tools/{telegramApproval,telegramPreview,postToX,markPosted,getArticles}.ts`, `index.ts`, `.env.example`, this doc).
+2. Apply `db/migrations/001_posting.sql` to the target database, then register the Telegram webhook (`setWebhook` with `TELEGRAM_WEBHOOK_SECRET`) against a public HTTPS URL.
+3. `cleanText` unwired; extraction workflow output schema vs `saveStep` return shape mismatch (`articles` vs counts).
+4. `schedule-tools.ts` stale `agentId: 'agent'`; extraction cron is workflow-level (`*/5 * * * *`).
+5. No X retry/backoff or rate limiting; no Telegram draft-edit support; no `SocialAdapter` abstraction yet.
+6. `pnpm build` (Mastra bundler) OOMs in small containers; `pnpm tsc --noEmit` passes — verify on a bigger box/CI.
 
 ## 9. Run / verify
 
 ```sh
 docker compose up -d
 pnpm install
+psql "$DATABASE_URL" -f db/migrations/001_posting.sql
 pnpm tsc --noEmit
 pnpm dev          # Studio http://localhost:4111
 # set DATABASE_URL=postgresql://user:password@localhost:5432/mydatabase
+# register Telegram webhook: setWebhook → https://<public-host>/webhooks/telegram
 ```
 
-## 10. Suggested commit plan for the next agent
+## 10. Suggested commit plan for the remaining hardening
 
-1. `chore(db): add articles migration (+ posting columns)`
-2. `feat(tools): add getArticles + markPosted tools`
-3. `feat(telegram): add preview + approval tools`
-4. `feat(agents): add postingAgent`
-5. `feat(social): add SocialAdapter + XAdapter`
-6. `feat(workflow): implement postNews pipeline + registration`
-7. `chore(env): complete .env.example + docs`
+1. `feat(social): add SocialAdapter + XAdapter` (extract from `lib/posting.ts`)
+2. `feat(posting): add X retry/backoff + rate limiting`
+3. `feat(telegram): add draft-edit support to review loop`
+4. `fix(schedule): update stale agentId in schedule-tools`

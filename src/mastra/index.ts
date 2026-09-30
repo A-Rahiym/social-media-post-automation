@@ -15,6 +15,14 @@ import {
 import { dataExtractionAgent } from './agents/extraction';
 import { startScheduleTool, stopScheduleTool } from './tools/schedule-tools';
 import { structuredOutputAgent } from './agents/structuredOutput';
+import { postingAgent } from './agents/postingAgent';
+import { getArticlesTool } from './tools/getArticles';
+import { draftPostsTool } from './tools/draftPosts';
+import { sendTelegramPreviewTool } from './tools/telegramPreview';
+import { awaitTelegramApprovalTool } from './tools/telegramApproval';
+import { postToXTool } from './tools/postToX';
+import { markPostedTool } from './tools/markPosted';
+import { telegramWebhookRoute } from './server/telegramWebhook';
 
 export const mastra = new Mastra({
   bundler: {
@@ -22,12 +30,21 @@ export const mastra = new Mastra({
   },
   agents: { extractionAgent: dataExtractionAgent,
     webAgent: webAgent,
-    structuredOutputAgent: structuredOutputAgent
+    structuredOutputAgent: structuredOutputAgent,
+    postingAgent: postingAgent
    },
   workflows: { extractionWorkflow, postNewsWorkflow
-    
+
   },
-  tools: { startScheduleTool, stopScheduleTool },
+  tools: {
+    startScheduleTool, stopScheduleTool,
+    getArticlesTool, draftPostsTool,
+    sendTelegramPreviewTool, awaitTelegramApprovalTool,
+    postToXTool, markPostedTool,
+  },
+  server: {
+    apiRoutes: [telegramWebhookRoute],
+  },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({

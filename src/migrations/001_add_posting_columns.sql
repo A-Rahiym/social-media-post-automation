@@ -5,5 +5,5 @@ ALTER TABLE articles
   ADD COLUMN IF NOT EXISTS preview_message_id TEXT,
   ADD COLUMN IF NOT EXISTS post_id TEXT,
   ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
-
+ ADD COLUMN IF NOT EXISTS review_decisions TEXT;
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles (status);

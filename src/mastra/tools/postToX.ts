@@ -1,29 +1,12 @@
 // src/mastra/tools/postToX.ts
+//
+// Posts an approved draft to X. Thin wrapper over lib/posting.postToX
+// (the same function the posting workflow calls directly).
 
 import "dotenv/config";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { TwitterApi } from "twitter-api-v2";
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} environment variable is not set`);
-  return value;
-}
-
-let client: TwitterApi | null = null;
-
-function getClient(): TwitterApi {
-  if (!client) {
-    client = new TwitterApi({
-      appKey: requireEnv("X_API_KEY"),
-      appSecret: requireEnv("X_API_SECRET"),
-      accessToken: requireEnv("X_ACCESS_TOKEN"),
-      accessSecret: requireEnv("X_ACCESS_SECRET"),
-    });
-  }
-  return client;
-}
+import { postToX } from "../lib/posting";
 
 export const postToXTool = createTool({
   id: "post-to-x",
@@ -39,8 +22,7 @@ export const postToXTool = createTool({
   }),
 
   execute: async ({ text }) => {
-    const twitter = getClient();
-    const result = await twitter.v2.tweet(text);
-    return { postId: result.data.id };
+    const postId = await postToX(text);
+    return { postId };
   },
 });

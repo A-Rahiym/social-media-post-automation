@@ -31,7 +31,7 @@ export const getArticlesTool = createTool({
   id: "get-unposted-articles",
 
   description:
-    "Fetches articles that have not yet been posted, oldest-fetch-first candidates for drafting.",
+    "Fetches articles that have not yet been posted (including past X-posting failures, which are retryable), oldest-fetch-first candidates for drafting.",
 
   inputSchema: z.object({
     limit: z.number().default(5),
@@ -49,7 +49,7 @@ export const getArticlesTool = createTool({
       SELECT id, title, summary, quote, url, published_at
       FROM articles
       WHERE posted_at IS NULL
-        AND (status IS NULL OR status = 'fetched')
+        AND (status IS NULL OR status IN ('fetched', 'failed'))
       ORDER BY published_at DESC NULLS LAST, id DESC
       LIMIT $1
       `,
