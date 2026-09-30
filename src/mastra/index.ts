@@ -2,8 +2,9 @@ import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
 import { DuckDBStore } from '@mastra/duckdb';
 import { MastraCompositeStore } from '@mastra/core/storage';
-import {extractionWorkflow} from './workflow/extraction_workflow';
-import {webAgent} from './agents/webAgent';
+import {extractionWorkflow} from './workflow/extractNews';
+import {postNewsWorkflow} from './workflow/postNews';
+import {webAgent} from './agents/web';
 
 import {
   MastraStorageExporter,
@@ -11,9 +12,9 @@ import {
   Observability,
   SensitiveDataFilter,
 } from '@mastra/observability';
-import { dataExtractionAgent } from './agents/extractionAgent';
+import { dataExtractionAgent } from './agents/extraction';
 import { startScheduleTool, stopScheduleTool } from './tools/schedule-tools';
-import { structuredOutputAgent } from './agents/structuredOutputAgent';
+import { structuredOutputAgent } from './agents/structuredOutput';
 
 export const mastra = new Mastra({
   bundler: {
@@ -23,7 +24,7 @@ export const mastra = new Mastra({
     webAgent: webAgent,
     structuredOutputAgent: structuredOutputAgent
    },
-  workflows: { extractionWorkflow
+  workflows: { extractionWorkflow, postNewsWorkflow
     
   },
   tools: { startScheduleTool, stopScheduleTool },

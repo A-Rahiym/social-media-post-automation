@@ -2,15 +2,15 @@
 
 import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { z } from "zod";
-import { webAgent } from "../agents/webAgent";
-import { dataExtractionAgent } from "../agents/extractionAgent";
+import { webAgent } from "../agents/web";
+import { dataExtractionAgent } from "../agents/extraction";
 import { newsUrlList } from "../lib/newsLinks";
 import { saveArticlesTool } from "../tools/saveArticle";
-import { structuredOutputAgent } from "../agents/structuredOutputAgent";
+import { structuredOutputAgent } from "../agents/structuredOutput";
 import { articleSchema } from "../../schema/articleSchema";
 
 const fetchingStep = createStep({
-  id: "extraction-step",
+  id: "extraction",
   description: "Fetches news articles from a given website.",
   inputSchema: z.object({
      urls: z.array(z.url()).default(newsUrlList),
@@ -51,7 +51,7 @@ const fetchingStep = createStep({
 
 // Step 2: Processing the fetched articles using the dataExtractionAgent to extract structured data.
 const processingStep = createStep({
-  id: "summarizing-step",
+  id: "summarizing",
   inputSchema: z.object({
     response: z.string(),
   }),
@@ -76,7 +76,7 @@ const processingStep = createStep({
 
 // Step 3: Converting the processed data into a structured format using the structuredOutputAgent.
 const structuredOutputStep = createStep({
-  id: "structured-output-step",
+  id: "structuring",
   description: "Converts the processed data into a structured format.",
   inputSchema: z.object({
     response: z.string(),
