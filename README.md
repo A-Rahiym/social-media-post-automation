@@ -32,6 +32,23 @@ Select **Agent** in Mastra Studio and try one of these prompts:
 
 The agent asks for approval before it changes files or runs commands. When it creates a schedule, it returns an ID that you can use to pause the schedule.
 
+## Telegram news publishing
+
+The news workflow drafts one post, sends it to the review chat for approval, and publishes approved posts to a Telegram channel. Rejections and timeouts do not publish anything.
+
+Set these variables in `.env`:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_REVIEW_CHAT_ID=
+TELEGRAM_CHANNEL_ID=
+TELEGRAM_CHANNEL_USERNAME=
+```
+
+Create the bot with BotFather, add it as an administrator of the publication channel with permission to post messages, and use the channel's numeric ID for `TELEGRAM_CHANNEL_ID`. Set `TELEGRAM_CHANNEL_USERNAME` to the public username without the `@`; it is used to build confirmation links. Keep the review chat separate from the publication channel.
+
+The workflow is exposed as `postNewsWorkflow` in Mastra Studio. Test with a channel that is safe to publish to before using the production channel.
+
 ## Workspace safety
 
 The local filesystem tools stay inside the project-level `workspace/` directory. Shell commands start in that directory, but `LocalSandbox` does not provide operating-system isolation by default. Review command approvals carefully, and do not expose this template through an unauthenticated public server.

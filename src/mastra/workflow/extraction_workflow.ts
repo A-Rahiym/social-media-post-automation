@@ -2,11 +2,11 @@
 
 import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { z } from "zod";
-import { webAgent } from "../agents/webAgent";
-import { dataExtractionAgent } from "../agents/extractionAgent";
+import { webAgent } from "../agents/getNews";
+import { dataExtractionAgent } from "../agents/extractionNews";
 import { newsUrlList } from "../lib/newsLinks";
 import { saveArticlesTool } from "../tools/saveArticle";
-import { structuredOutputAgent } from "../agents/structuredOutputAgent";
+import { structuredOutputAgent } from "../agents/structureResult";
 import { articleSchema } from "../../schema/articleSchema";
 
 const fetchingStep = createStep({

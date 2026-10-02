@@ -8,14 +8,17 @@
 
 import {createStep, createWorkflow} from "@mastra/core/workflows";
 import { z } from "zod";
+import "dotenv/config";
 import { getArticlesTool } from "../tools/getArticles";
 import { draftPostsTool } from "../tools/draftPosts";
 import { sendTelegramPreviewTool } from "../tools/telegramPreview";
 import { markPreviewedTool } from "../tools/markPreviewed";
 import { awaitTelegramApprovalTool } from "../tools/telegramApproval";
-import { postToXTool } from "../tools/postToX";
+import { postToTelegramTool } from "../tools/postToTelegram";
 import { markPostedTool } from "../tools/markPosted";
 import { sendTelegramConfirmTool } from "../tools/telegramConfirm";
+import { requireEnv } from "../lib/env";
+
 
 const loadStep = createStep(getArticlesTool);
 const draftStep = createStep(draftPostsTool);
@@ -44,17 +47,17 @@ const previewStep = createStep({
     const draft = inputData.drafts[0];
     if (!draft) throw new Error("No draft to preview");
 
-    const { previewMessageId } = await sendTelegramPreviewTool.execute({
+    const { previewMessageId } = await sendTelegramPreviewTool.execute!({
       articleId: draft.articleId,
       title: draft.title,
       url: draft.url,
       text: draft.text,
-    });
+    }, {} as never) as { previewMessageId: string };
 
-    await markPreviewedTool.execute({
+    await markPreviewedTool.execute!({
       articleId: draft.articleId,
       previewMessageId,
-    });
+    }, {} as never);
 
     return {
       articleId: draft.articleId,
@@ -81,10 +84,10 @@ const approvalStep = createStep({
     decision: z.enum(["approved", "rejected", "timed_out"]),
   }),
   execute: async ({ inputData }) => {
-    const { decision } = await awaitTelegramApprovalTool.execute({
+    const { decision } = await awaitTelegramApprovalTool.execute!({
       articleId: inputData.articleId,
       timeoutMinutes: 60,
-    });
+    }, {} as never) as { decision: "approved" | "rejected" | "timed_out" };
     return { ...inputData, decision };
   },
 });
@@ -101,16 +104,18 @@ const postStep = createStep({
   outputSchema: z.object({
     articleId: z.number(),
     title: z.string(),
+    text: z.string(),
     previewMessageId: z.string(),
     status: z.enum(["posted", "rejected", "skipped"]),
     postId: z.string().nullable(),
   }),
   execute: async ({ inputData }) => {
     if (inputData.decision === "approved") {
-      const { postId } = await postToXTool.execute({ text: inputData.text });
+      const { postId } = await postToTelegramTool.execute!({ text: inputData.text }, {} as never) as { postId: string };
       return {
         articleId: inputData.articleId,
         title: inputData.title,
+        text: inputData.text,
         previewMessageId: inputData.previewMessageId,
         status: "posted" as const,
         postId,
@@ -121,6 +126,7 @@ const postStep = createStep({
     return {
       articleId: inputData.articleId,
       title: inputData.title,
+      text: inputData.text,
       previewMessageId: inputData.previewMessageId,
       status,
       postId: null,
@@ -133,6 +139,7 @@ const recordStep = createStep({
   inputSchema: z.object({
     articleId: z.number(),
     title: z.string(),
+    text: z.string(),
     previewMessageId: z.string(),
     status: z.enum(["posted", "rejected", "skipped"]),
     postId: z.string().nullable(),
@@ -143,16 +150,16 @@ const recordStep = createStep({
     postUrl: z.string().nullable(),
   }),
   execute: async ({ inputData }) => {
-    await markPostedTool.execute({
+    await markPostedTool.execute!({
       articleId: inputData.articleId,
       status: inputData.status,
-      postDraft: null,
+      postDraft: inputData.text,
       previewMessageId: inputData.previewMessageId,
       postId: inputData.postId,
-    });
+    }, {} as never);
 
     const postUrl = inputData.postId
-      ? `https://x.com/i/web/status/${inputData.postId}`
+      ? `https://t.me/${requireEnv("TELEGRAM_CHANNEL_USERNAME").replace(/^@/, "")}/${inputData.postId}`
       : null;
 
     return { title: inputData.title, status: inputData.status, postUrl };
@@ -168,7 +175,7 @@ const confirmStep = createStep({
   }),
   outputSchema: z.object({ status: z.string() }),
   execute: async ({ inputData }) => {
-    await sendTelegramConfirmTool.execute(inputData);
+    await sendTelegramConfirmTool.execute!(inputData, {} as never);
     return { status: inputData.status };
   },
 });

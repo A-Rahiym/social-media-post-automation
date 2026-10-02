@@ -2,7 +2,7 @@
 
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { postingAgent } from "../agents/postingAgent";
+import { postingAgent } from "../agents/postNews";
 
 const articleSchema = z.object({
   id: z.number(),
