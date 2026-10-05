@@ -7,3 +7,13 @@ export const articleSchema = z.object({
   url: z.string(),
   publishedAt: z.string().nullable(),
 });
+
+
+export const postArticleSchema = z.object({
+    articleId: z.number(),
+    title: z.string(),
+    text: z.string(),
+    previewMessageId: z.string(),
+    status: z.enum(["posted", "rejected", "skipped"]),
+    postId: z.string().nullable(),
+  });

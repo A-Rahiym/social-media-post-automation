@@ -1,12 +1,10 @@
 // src/mastra/workflow/postNews.ts
 //
-// Processes ONE article per run. Run this workflow on a schedule (e.g. every
-// few minutes) rather than batching several articles inside one run — that's
-// what keeps Telegram's polling-based approval simple and race-free (see
-// telegramApproval.ts). Each run: load -> draft -> preview -> approve ->
-// post (if approved) -> record -> confirm.
+// Processes each article independently through preview -> approve -> post ->
+// record -> confirm. Mastra's foreach() keeps the per-article steps isolated
+// while allowing a batch of drafts to flow through the workflow.
 
-import {createStep, createWorkflow} from "@mastra/core/workflows";
+import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod";
 import "dotenv/config";
 import { getArticlesTool } from "../tools/getArticles";
@@ -18,24 +16,20 @@ import { postToTelegramTool } from "../tools/postToTelegram";
 import { markPostedTool } from "../tools/markPosted";
 import { sendTelegramConfirmTool } from "../tools/telegramConfirm";
 import { requireEnv } from "../lib/env";
-
+import { postArticleSchema } from '../../schema/articleSchema';
 
 const loadStep = createStep(getArticlesTool);
 const draftStep = createStep(draftPostsTool);
 
-// Sends the review card and marks the article 'previewed' so a second run
+// Sends one review card and marks that article 'previewed' so a second run
 // can't grab it while it's awaiting a decision.
 const previewStep = createStep({
   id: "preview",
   inputSchema: z.object({
-    drafts: z.array(
-      z.object({
-        articleId: z.number(),
-        title: z.string(),
-        url: z.string(),
-        text: z.string(),
-      }),
-    ),
+    articleId: z.number(),
+    title: z.string(),
+    url: z.string(),
+    text: z.string(),
   }),
   outputSchema: z.object({
     articleId: z.number(),
@@ -44,51 +38,72 @@ const previewStep = createStep({
     previewMessageId: z.string(),
   }),
   execute: async ({ inputData }) => {
-    const draft = inputData.drafts[0];
-    if (!draft) throw new Error("No draft to preview");
+    const { previewMessageId } = (await sendTelegramPreviewTool.execute!(
+      {
+        articleId: inputData.articleId,
+        title: inputData.title,
+        url: inputData.url,
+        text: inputData.text,
+      },
+      {} as never,
+    )) as { previewMessageId: string };
 
-    const { previewMessageId } = await sendTelegramPreviewTool.execute!({
-      articleId: draft.articleId,
-      title: draft.title,
-      url: draft.url,
-      text: draft.text,
-    }, {} as never) as { previewMessageId: string };
-
-    await markPreviewedTool.execute!({
-      articleId: draft.articleId,
-      previewMessageId,
-    }, {} as never);
+    await markPreviewedTool.execute!(
+      {
+        articleId: inputData.articleId,
+        previewMessageId,
+      },
+      {} as never,
+    );
 
     return {
-      articleId: draft.articleId,
-      title: draft.title,
-      text: draft.text,
+      articleId: inputData.articleId,
+      title: inputData.title,
+      text: inputData.text,
       previewMessageId,
     };
   },
 });
 
-const approvalStep = createStep({
-  id: "approval",
-  inputSchema: z.object({
-    articleId: z.number(),
-    title: z.string(),
-    text: z.string(),
-    previewMessageId: z.string(),
-  }),
-  outputSchema: z.object({
-    articleId: z.number(),
-    title: z.string(),
-    text: z.string(),
-    previewMessageId: z.string(),
-    decision: z.enum(["approved", "rejected", "timed_out"]),
-  }),
+const approvalBatchStep = createStep({
+  id: "approval-batch",
+  inputSchema: z.array(
+    z.object({
+      articleId: z.number(),
+      title: z.string(),
+      text: z.string(),
+      previewMessageId: z.string(),
+    }),
+  ),
+  outputSchema: z.array(
+    z.object({
+      articleId: z.number(),
+      title: z.string(),
+      text: z.string(),
+      previewMessageId: z.string(),
+      decision: z.enum(["approved", "rejected", "timed_out"]),
+    }),
+  ),
   execute: async ({ inputData }) => {
-    const { decision } = await awaitTelegramApprovalTool.execute!({
-      articleId: inputData.articleId,
-      timeoutMinutes: 60,
-    }, {} as never) as { decision: "approved" | "rejected" | "timed_out" };
-    return { ...inputData, decision };
+    const { decisions } = (await awaitTelegramApprovalTool.execute!(
+      {
+        articleIds: inputData.map(({ articleId }) => articleId),
+        timeoutMinutes: 60,
+      },
+      {} as never,
+    )) as {
+      decisions: Array<{
+        articleId: number;
+        decision: "approved" | "rejected" | "timed_out";
+      }>;
+    };
+
+    return inputData.map((preview) => ({
+      ...preview,
+      decision:
+        decisions.find(({ articleId }) => articleId === preview.articleId)
+          ?.decision ?? ("timed_out" as const),
+    }));
   },
 });
 
@@ -111,7 +126,10 @@ const postStep = createStep({
   }),
   execute: async ({ inputData }) => {
     if (inputData.decision === "approved") {
-      const { postId } = await postToTelegramTool.execute!({ text: inputData.text }, {} as never) as { postId: string };
+      const { postId } = (await postToTelegramTool.execute!(
+        { text: inputData.text },
+        {} as never,
+      )) as { postId: string };
       return {
         articleId: inputData.articleId,
         title: inputData.title,
@@ -122,7 +140,10 @@ const postStep = createStep({
       };
     }
 
-    const status = inputData.decision === "rejected" ? "rejected" as const : "skipped" as const;
+    const status =
+      inputData.decision === "rejected"
+        ? ("rejected" as const)
+        : ("skipped" as const);
     return {
       articleId: inputData.articleId,
       title: inputData.title,
@@ -150,13 +171,16 @@ const recordStep = createStep({
     postUrl: z.string().nullable(),
   }),
   execute: async ({ inputData }) => {
-    await markPostedTool.execute!({
-      articleId: inputData.articleId,
-      status: inputData.status,
-      postDraft: inputData.text,
-      previewMessageId: inputData.previewMessageId,
-      postId: inputData.postId,
-    }, {} as never);
+    await markPostedTool.execute!(
+      {
+        articleId: inputData.articleId,
+        status: inputData.status,
+        postDraft: inputData.text,
+        previewMessageId: inputData.previewMessageId,
+        postId: inputData.postId,
+      },
+      {} as never,
+    );
 
     const postUrl = inputData.postId
       ? `https://t.me/${requireEnv("TELEGRAM_CHANNEL_USERNAME").replace(/^@/, "")}/${inputData.postId}`
@@ -166,30 +190,39 @@ const recordStep = createStep({
   },
 });
 
-const confirmStep = createStep({
-  id: "confirm",
-  inputSchema: z.object({
-    title: z.string(),
-    status: z.enum(["posted", "rejected", "skipped"]),
-    postUrl: z.string().nullable(),
-  }),
-  outputSchema: z.object({ status: z.string() }),
-  execute: async ({ inputData }) => {
-    await sendTelegramConfirmTool.execute!(inputData, {} as never);
-    return { status: inputData.status };
-  },
-});
+// const confirmStep = createStep({
+//   id: "confirm",
+//   inputSchema: z.object({
+//     title: z.string(),
+//     status: z.enum(["posted", "rejected", "skipped"]),
+//     postUrl: z.string().nullable(),
+//   }),
+//   outputSchema: z.object({ status: z.string() }),
+//   execute: async ({ inputData }) => {
+//     await sendTelegramConfirmTool.execute!(inputData, {} as never);
+//     return { status: inputData.status };
+//   },
+// });
 
 export const postNewsWorkflow = createWorkflow({
   id: "post-news-workflow",
   inputSchema: z.object({ limit: z.number().default(1) }),
-  outputSchema: z.object({ status: z.string() }),
+
+  outputSchema: z.object({
+    articleId: z.number(),
+    title: z.string(),
+    text: z.string(),
+    previewMessageId: z.string(),
+    status: z.enum(["posted", "rejected", "skipped"]),
+    postId: z.string().nullable(),
+  }),
 })
   .then(loadStep)
   .then(draftStep)
-  .then(previewStep)
-  .then(approvalStep)
-  .then(postStep)
-  .then(recordStep)
-  .then(confirmStep)
+  .map(async ({ inputData }) => inputData.drafts)
+  .foreach(previewStep)
+  .then(approvalBatchStep)
+  .foreach(postStep)
+  // .foreach(recordStep)
+  // .foreach(confirmStep)
   .commit();

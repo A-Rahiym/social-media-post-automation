@@ -26,20 +26,27 @@ export const awaitTelegramApprovalTool = createTool({
   id: "await-telegram-approval",
 
   description:
-    "Polls Telegram for an Approve/Reject button press on a given article, up to a timeout.",
+    "Polls Telegram for Approve/Reject button presses for a batch of articles, up to a timeout.",
 
   inputSchema: z.object({
-    articleId: z.number(),
+    articleIds: z.array(z.number()).min(1),
     timeoutMinutes: z.number().default(60),
   }),
 
   outputSchema: z.object({
-    decision: z.enum(["approved", "rejected", "timed_out"]),
+    decisions: z.array(
+      z.object({
+        articleId: z.number(),
+        decision: z.enum(["approved", "rejected", "timed_out"]),
+      }),
+    ),
   }),
 
-  execute: async ({ articleId, timeoutMinutes }) => {
+  execute: async ({ articleIds, timeoutMinutes }) => {
     const botToken = requireEnv("TELEGRAM_BOT_TOKEN");
     const allowedChatId = requireEnv("TELEGRAM_REVIEW_CHAT_ID");
+    const pendingArticleIds = new Set(articleIds);
+    const decisions = new Map<number, "approved" | "rejected">();
 
     const deadline = Date.now() + timeoutMinutes * 60_000;
     let offset = 0;
@@ -49,7 +56,7 @@ export const awaitTelegramApprovalTool = createTool({
         `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&timeout=0`,
       );
       const data = await response.json();
-
+      console.log("Telegram getUpdates response:", data);
       if (data.ok) {
         for (const update of data.result) {
           offset = update.update_id + 1;
@@ -61,16 +68,31 @@ export const awaitTelegramApprovalTool = createTool({
           if (fromChatId !== String(allowedChatId)) continue; // ignore non-allow-listed chats
 
           const [action, idStr] = callback.data.split(":");
-          if (Number(idStr) !== articleId) continue; // not this article
+          const articleId = Number(idStr);
+          if (!pendingArticleIds.has(articleId) || decisions.has(articleId)) continue;
 
-          if (action === "approve") return { decision: "approved" as const };
-          if (action === "reject") return { decision: "rejected" as const };
+          if (action === "approve") decisions.set(articleId, "approved");
+          if (action === "reject") decisions.set(articleId, "rejected");
+        }
+
+        if (decisions.size === pendingArticleIds.size) {
+          return {
+            decisions: articleIds.map((articleId) => ({
+              articleId,
+              decision: decisions.get(articleId)!,
+            })),
+          };
         }
       }
 
       await sleep(POLL_INTERVAL_MS);
     }
 
-    return { decision: "timed_out" as const };
+    return {
+      decisions: articleIds.map((articleId) => ({
+        articleId,
+        decision: decisions.get(articleId) ?? "timed_out" as const,
+      })),
+    };
   },
 });
