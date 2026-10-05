@@ -2,7 +2,7 @@ import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
 import { DuckDBStore } from '@mastra/duckdb';
 import { MastraCompositeStore } from '@mastra/core/storage';
-import {extractionWorkflow} from './workflow/extraction_workflow';
+import {extractionWorkflow} from './workflow/getNews';
 import {webAgent} from './agents/getNews';
 
 import {

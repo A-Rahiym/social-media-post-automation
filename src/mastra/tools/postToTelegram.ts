@@ -8,7 +8,7 @@ import { requireEnv } from "../lib/env";
 export const postToTelegramTool = createTool({
   id: "post-to-telegram",
 
-  description: "Posts an approved draft to the configured Telegram channel.",
+  description: "Publishes one approved draft to the configured Telegram channel and returns its message ID.",
 
   inputSchema: z.object({
     text: z.string(),

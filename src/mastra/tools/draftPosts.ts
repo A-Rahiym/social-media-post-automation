@@ -16,7 +16,7 @@ const articleSchema = z.object({
 export const draftPostsTool = createTool({
   id: "draft-posts",
 
-  description: "Drafts one X post per article using postingAgent.",
+  description: "Drafts one concise Telegram channel post per article using postingAgent.",
 
   inputSchema: z.object({
     articles: z.array(articleSchema),

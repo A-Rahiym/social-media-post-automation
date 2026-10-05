@@ -22,7 +22,7 @@ export const markPostedTool = createTool({
   id: "mark-posted",
 
   description:
-    "Updates an article's row with its final posting status (posted, rejected, or skipped).",
+    "Records the final Telegram publication outcome for an article, including rejected and timed-out reviews.",
 
   inputSchema: z.object({
     articleId: z.number(),

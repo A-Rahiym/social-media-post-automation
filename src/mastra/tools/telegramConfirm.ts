@@ -14,8 +14,7 @@ export const sendTelegramConfirmTool = createTool({
   id: "send-telegram-confirm",
 
   description:
-    "Sends a follow-up Telegram message after a decision is acted on, so the reviewer knows the outcome (posted, rejected, or timed out).",
-
+    "Sends the reviewer a Telegram confirmation for one article's posted, rejected, or timed-out outcome.",
   inputSchema: z.object({
     title: z.string(),
     status: z.enum(["posted", "rejected", "skipped"]),

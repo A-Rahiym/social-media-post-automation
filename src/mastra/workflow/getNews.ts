@@ -13,7 +13,7 @@ const fetchingStep = createStep({
   id: "extraction-step",
   description: "Fetches news articles from a given website.",
   inputSchema: z.object({
-     urls: z.array(z.url()).default(newsUrlList),
+    urls: z.array(z.url()).default(newsUrlList),
   }),
   outputSchema: z.object({
     response: z.string(),
@@ -21,17 +21,15 @@ const fetchingStep = createStep({
   execute: async ({ inputData }) => {
     const urls = inputData.urls;
 
-
     const results = await Promise.allSettled(
       urls.map(async (url) => {
         const result = await webAgent.generate(
-    `Process this website only: WEBSITE_URL: ${url}`,
+          `Process this website only: WEBSITE_URL: ${url}`,
         );
         return result.text;
       }),
     );
 
-    
     const successfulResults = results
       .filter(
         (result): result is PromiseFulfilledResult<string> =>
@@ -102,14 +100,13 @@ const structuredOutputStep = createStep({
 // step 4:
 const saveStep = createStep(saveArticlesTool);
 
-
 // step 5: Define the extraction workflow that chains the above steps together.
 export const extractionWorkflow = createWorkflow({
   id: "Extraction-workflow",
   description:
     "This workflow is for extracting structured data from news articles. It fetches recent news articles from a given website and processes them to return structured data in JSON format. ",
-    inputSchema: z.object({
-     urls: z.array(z.url()).default(newsUrlList),
+  inputSchema: z.object({
+    urls: z.array(z.url()).default(newsUrlList),
   }),
 
   outputSchema: z.object({
