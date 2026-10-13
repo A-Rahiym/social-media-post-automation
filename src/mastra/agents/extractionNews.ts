@@ -47,10 +47,4 @@ Ensure the response is valid JSON.
 Use JSON null for unavailable values, not strings such as "null", "unknown", or "N/A".
 Never guess or invent missing information. Use null instead.
 `,
-  memory: new Memory({
-    options: {
-      generateTitle: true,
-    },
-  }),
-  signals: [new TaskSignalProvider()]
 });

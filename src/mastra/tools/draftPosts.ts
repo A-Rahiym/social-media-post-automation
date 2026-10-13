@@ -16,7 +16,8 @@ const articleSchema = z.object({
 export const draftPostsTool = createTool({
   id: "draft-posts",
 
-  description: "Drafts one concise Telegram channel post per article using postingAgent.",
+  description:
+    "Drafts one concise Telegram channel post per article using postingAgent.",
 
   inputSchema: z.object({
     articles: z.array(articleSchema),
@@ -37,19 +38,11 @@ export const draftPostsTool = createTool({
     const drafts = [];
 
     for (const article of articles) {
-      const prompt = `
-Title: ${article.title}
-Summary: ${article.summary ?? "(none provided)"}
-Quote: ${article.quote ?? "(none)"}
-URL: ${article.url}
-`;
-      const response = await postingAgent.generate(prompt);
-
       drafts.push({
         articleId: article.id,
         title: article.title,
         url: article.url,
-        text: response.text.trim(),
+        text: `${article.summary} \n ${article.url}`, // Fallback to title if summary is not provided
       });
     }
 
