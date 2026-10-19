@@ -1,7 +1,7 @@
 {
   "name": "social-media-post-automation",
   "version": "1.0.0",
-  "description": "A general-purpose Mastra agent with a local workspace, shell tools, memory, task tracking, web access, and recurring schedules.",
+  "description": "Scheduled news extraction and Telegram publishing pipeline built on Mastra.",
   "main": "index.js",
   "private": true,
   "scripts": {
