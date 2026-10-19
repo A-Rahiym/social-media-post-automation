@@ -3,6 +3,7 @@ node_modules
 dist
 .mastra
 src/mastra/public/
+guide/
 .env.development
 .env
 .env.local
