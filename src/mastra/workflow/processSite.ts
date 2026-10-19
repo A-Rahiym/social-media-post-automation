@@ -9,11 +9,11 @@ import { articleSchema } from "../../schema/articleSchema";
 const fetchUrlStep = createStep({
 	id: "fetch-url",
 	description: "Fetches recent article records from one news website URL.",
-	inputSchema: z.object({ url: z.url() }),
+	inputSchema: z.url(),
 	outputSchema: z.object({ response: z.string() }),
 	execute: async ({ inputData }) => {
 		const result = await webAgent.generate(
-			`Process this website only: WEBSITE_URL: ${inputData.url}`,
+			`Process this website only: WEBSITE_URL: ${inputData}`,
 		);
 
 		return { response: result.text };
@@ -54,7 +54,7 @@ const saveArticlesStep = createStep(saveArticlesTool);
 export const parseUrlWorkflow = createWorkflow({
 	id: "parse-url-workflow",
 	description: "Fetches, structures, and saves articles from one news website URL.",
-	inputSchema: z.object({ url: z.url() }),
+	inputSchema: z.url(),
 	outputSchema: z.object({
 		inserted: z.number(),
 		updated: z.number(),
