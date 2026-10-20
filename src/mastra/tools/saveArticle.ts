@@ -8,15 +8,27 @@ const inputSchema = z.object({
   articles: z.array(articleSchema),
 });
 
+const savedArticleSchema = z.object({
+  id: z.number(),
+  url: z.string(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  quote: z.string().nullable(),
+  published_at: z.string().nullable(),
+  status: z.string().nullable(),
+  embedding_hash: z.string().nullable(),
+});
+
 const outputSchema = z.object({
   inserted: z.number(),
   updated: z.number(),
   total: z.number(),
+  articles: z.array(savedArticleSchema),
 });
 
 let pool: Pool | null = null;
 
-function getPool(): Pool {
+export function getPool(): Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
@@ -43,12 +55,14 @@ export const saveArticlesTool = createTool({
         inserted: 0,
         updated: 0,
         total: 0,
+        articles: [],
       };
     }
     const db = getPool();
     const client = await db.connect();
     let inserted: number = 0;
     let updated = 0;
+    const saved: z.infer<typeof savedArticleSchema>[] = [];
 
     try {
       await client.query("BEGIN");
@@ -61,7 +75,8 @@ export const saveArticlesTool = createTool({
       summary = EXCLUDED.summary,
       quote = EXCLUDED.quote,
       published_at = EXCLUDED.published_at
-      RETURNING (xmax = 0) AS inserted 
+      RETURNING (xmax = 0) AS inserted,
+        id, url, title, summary, quote, published_at, status, embedding_hash
          `,
           [
             article.title,
@@ -72,10 +87,26 @@ export const saveArticlesTool = createTool({
           ],
         );
 
-        if (result.rows[0]?.inserted) {
+        const row = result.rows[0];
+        if (row?.inserted) {
           inserted += 1;
         } else {
           updated += 1;
+        }
+
+        if (row) {
+          saved.push({
+            id: Number(row.id),
+            url: row.url,
+            title: row.title,
+            summary: row.summary,
+            quote: row.quote,
+            published_at: row.published_at
+              ? new Date(row.published_at).toISOString()
+              : null,
+            status: row.status,
+            embedding_hash: row.embedding_hash,
+          });
         }
       }
 
@@ -92,6 +123,6 @@ export const saveArticlesTool = createTool({
       client.release();
     }
 
-    return { inserted, updated, total: articles.length };
+    return { inserted, updated, total: articles.length, articles: saved };
   },
 });
