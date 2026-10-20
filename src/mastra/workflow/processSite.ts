@@ -5,6 +5,7 @@ import { dataExtractionAgent } from "../agents/extractionNews";
 import { structuredOutputAgent } from "../agents/structureResult";
 import { saveArticlesTool } from "../tools/saveArticle";
 import { articleSchema } from "../../schema/articleSchema";
+import { embedArticlesStep, storeEmbeddingsStep } from "./embedSteps";
 
 const fetchUrlStep = createStep({
 	id: "fetch-url",
@@ -59,10 +60,13 @@ export const parseUrlWorkflow = createWorkflow({
 		inserted: z.number(),
 		updated: z.number(),
 		total: z.number(),
+		stored: z.number(),
 	}),
 })
 	.then(fetchUrlStep)
 	.then(extractArticlesStep)
 	.then(structureArticlesStep)
 	.then(saveArticlesStep)
+	.then(embedArticlesStep)
+	.then(storeEmbeddingsStep)
 	.commit();

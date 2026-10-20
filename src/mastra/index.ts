@@ -17,16 +17,18 @@ import { structuredOutputAgent } from './agents/structureResult';
 import {postNewsWorkflow} from './workflow/postNews';
 import { postToTelegramTool } from './tools/postToTelegram';
 import { parseUrlWorkflow } from './workflow/processSite';
+import { qdrant } from './lib/qdrant';
 
 export const mastra = new Mastra({
   bundler: {
-    externals: ['@duckdb/node-bindings'],
+    externals: ['@duckdb/node-bindings', '@anush008/tokenizers', 'onnxruntime-node', 'chromium-bidi'],
   },
   agents: { extractionAgent: dataExtractionAgent,
     webAgent: webAgent,
     structuredOutputAgent: structuredOutputAgent
    },
   workflows: { extractionWorkflow, parseUrlWorkflow, postNewsWorkflow},
+  vectors: { qdrant },
   tools: { startScheduleTool, stopScheduleTool, postToTelegramTool },
   storage: new MastraCompositeStore({
     id: 'composite-storage',

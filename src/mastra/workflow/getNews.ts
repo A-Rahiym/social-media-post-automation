@@ -49,6 +49,7 @@ const formatProcessedResultStep = createStep({
     inserted: z.number(),
     updated: z.number(),
     total: z.number(),
+    stored: z.number(),
   }),
   outputSchema: z.object({
     status: z.literal("processed"),
@@ -56,6 +57,7 @@ const formatProcessedResultStep = createStep({
     inserted: z.number(),
     updated: z.number(),
     total: z.number(),
+    stored: z.number(),
   }),
   execute: async ({ inputData }) => ({
     status: "processed" as const,
@@ -87,6 +89,7 @@ export const extractionWorkflow = createWorkflow({
       inserted: z.number(),
       updated: z.number(),
       total: z.number(),
+      stored: z.number(),
     }),
     z.object({
       status: z.literal("skipped"),
