@@ -1,12 +1,21 @@
 services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: news_vector_db
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
   postgres:
     image: postgres:16-alpine
     container_name: news_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: mydatabase
+      POSTGRES_USER: news_admin
+      POSTGRES_PASSWORD: news_password
+      POSTGRES_DB: news_database
     ports:
       - "5632:5432"
     volumes:

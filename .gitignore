@@ -13,3 +13,4 @@ guide/
 .vercel
 *.duckdb
 *.duckdb.wal
+qdrant_storage/
