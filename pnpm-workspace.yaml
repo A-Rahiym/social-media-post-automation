@@ -3,6 +3,7 @@ allowBuilds:
   edgedriver: true
   esbuild: true
   geckodriver: true
+  onnxruntime-node: true
 minimumReleaseAgeExclude:
   - '@mastra/core@1.70.0'
   - '@mastra/deployer@1.70.0'
@@ -11,3 +12,5 @@ minimumReleaseAgeExclude:
   - '@mastra/memory@1.32.0'
   - '@mastra/server@1.70.0'
   - mastra@1.31.2
+  - '@ai-sdk/gateway@2.0.169'
+  - ai@5.0.278
